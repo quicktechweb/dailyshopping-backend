@@ -1,6 +1,6 @@
 <div align="center">
 
-# Lucky Shop — Backend
+# Daily Shopping — Backend
 
 ### Node.js REST API Server
 
@@ -12,7 +12,7 @@
 [![Firebase](https://img.shields.io/badge/Firebase_Admin-13.5.0-FFCA28?style=flat-square&logo=firebase)](https://firebase.google.com/)
 [![License](https://img.shields.io/badge/License-Confidential-red?style=flat-square)](#)
 
-**Production-grade Express.js REST API for Lucky Shop — handling auth, orders, coupon draws, payments, and real-time events.**
+**Production-grade Express.js REST API for Daily Shopping — handling auth, orders, coupon draws, payments, and real-time events.**
 
 [Tech Stack](#-tech-stack) · [API Reference](#-api-reference) · [Database](#-database) · [Security](#-security) · [Setup](#-getting-started)
 
@@ -22,7 +22,7 @@
 
 ## Overview
 
-This is the backend server for **Lucky Shop**, built with Node.js v20 and Express.js v5. It exposes a RESTful API consumed by the React frontend and Flutter mobile app. It handles authentication (JWT + Firebase), order management, the real-time coupon draw engine (Socket.IO), image processing (Sharp + Google Vision), and email notifications (Nodemailer).
+This is the backend server for **Daily Shopping**, built with Node.js v20 and Express.js v5. It exposes a RESTful API consumed by the React frontend and Flutter mobile app. It handles authentication (JWT + Firebase), order management, the real-time coupon draw engine (Socket.IO), image processing (Sharp + Google Vision), and email notifications (Nodemailer).
 
 | Field | Details |
 |---|---|
