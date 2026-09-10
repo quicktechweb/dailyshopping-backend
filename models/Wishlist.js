@@ -1,6 +1,10 @@
+
+
+
 import mongoose from 'mongoose';
 
 const WishlistSchema = new mongoose.Schema({
+  userId: { type: String, required: true },
   productId: { type: String, required: true },
   productTitle: { type: String },
   productPrice: { type: Number },
@@ -11,7 +15,7 @@ const WishlistSchema = new mongoose.Schema({
     email: { type: String },
     phone: { type: String },
   },
-   like: { type: Number, default: 1 },
+  like: { type: Number, default: 1 },
   addedAt: { type: Date, default: Date.now },
 });
 

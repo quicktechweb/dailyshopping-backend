@@ -5,20 +5,14 @@ import Wishlist from "../models/Wishlist.js";
 // ✅ Add item to wishlist
 router.post("/", async (req, res) => {
   try {
-    const { productId, productTitle, productPrice, productImg, productData, user } = req.body;
+    const { userId, productId, productTitle, productPrice, productImg, productData, user } = req.body;
 
-    if (!user || (!user.email && !user.phone)) {
-      return res.status(400).json({ message: "User info missing (email or phone required)" });
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
     }
 
-    // ✅ Check existing wishlist item
-    let existing = await Wishlist.findOne({
-      productId,
-      $or: [
-        { "user.email": user.email || null },
-        { "user.phone": user.phone || null },
-      ],
-    });
+    // ✅ Check existing wishlist item by userId + productId
+    let existing = await Wishlist.findOne({ userId, productId });
 
     if (existing) {
       // If already exists, toggle like to 1
@@ -29,6 +23,7 @@ router.post("/", async (req, res) => {
 
     // Create new wishlist item with like:1
     const newItem = new Wishlist({
+      userId,
       productId,
       productTitle,
       productPrice,
@@ -48,23 +43,16 @@ router.post("/", async (req, res) => {
 });
 
 
-// ✅ Get wishlist by email OR phone
+// ✅ Get wishlist by userId
 router.get("/", async (req, res) => {
   try {
-    const { email, phone } = req.query;
+    const { userId } = req.query;
 
-    if (!email && !phone) {
-      return res.status(400).json({ message: "Email or phone required" });
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
     }
 
-    const query = {
-      $or: [
-        ...(email ? [{ "user.email": email }] : []),
-        ...(phone ? [{ "user.phone": phone }] : []),
-      ],
-    };
-
-    const items = await Wishlist.find(query).sort({ addedAt: -1 });
+    const items = await Wishlist.find({ userId }).sort({ addedAt: -1 });
     res.status(200).json(items);
   } catch (err) {
     console.error("Get Wishlist Error:", err);
@@ -73,12 +61,17 @@ router.get("/", async (req, res) => {
 });
 
 
-// ❌ REMOVE item from wishlist
+// ❌ REMOVE item from wishlist (by wishlist _id, but verify userId too)
 router.delete("/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    const { userId } = req.query;
 
-    const removed = await Wishlist.findByIdAndDelete(id);
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
+    }
+
+    const removed = await Wishlist.findOneAndDelete({ _id: id, userId });
     if (!removed) return res.status(404).json({ message: "Item not found" });
 
     res.status(200).json({ message: "Wishlist item deleted", removed });
@@ -87,8 +80,6 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
-
-
 
 
 export default router;

@@ -37,6 +37,10 @@ import  wishlistRoutes from "./routes/wishlistRoute.js";
 import  navbarCategoryRoutes from "./routes/navbarcategory.js";
 import bannerAdvertisementRoute from "./routes/bannerAdvertisementRoute.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
+import bannerlandingRoutes from "./routes/LandingPage/bannerpartRoute.js";
+import popularSectionRoute from "./routes/LandingPage/popularSectionRoute.js";
+import sellerFollowRoutes from "./routes/sellerFollowRoute.js";
+
 import  fs from "fs";
 import  multer from "multer";
 import path from "path";
@@ -107,6 +111,10 @@ app.use("/roles", roleRoutes);
 app.use("/api/settings", gtmRoutes);
 app.use("/api/sellers", sellerRoutes);
 app.use("/api/reviews", reviewRoutes);
+app.use("/api/bannerlanding", bannerlandingRoutes);
+app.use("/api/popular", popularSectionRoute);
+// ... other app.use লাইনগুলোর সাথে
+app.use("/api/seller-follow", sellerFollowRoutes);
 
 app.get("/envtest", (req, res) => {
   res.json({

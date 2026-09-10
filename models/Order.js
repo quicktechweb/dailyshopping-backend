@@ -35,10 +35,22 @@ const OrderSchema = new mongoose.Schema(
       shipping: Number,
       grandtotal: Number,
     },
-    status: {
-      type: String,
-      default: "pending", // pending, paid, delivered, etc
-    },
+   status: {
+  type: String,
+  enum: [
+    "pending",       
+    "confirmed",     
+    "processing",   
+    "shipped",       
+    "out_for_delivery", 
+    "delivered",    
+    "cancelled",     
+    "returned",     
+    "refunded",    
+    "failed",        
+  ],
+  default: "pending",
+},
     orderPayment: {
       type: String,
       enum: ["paid", "unpaid"],

@@ -596,6 +596,37 @@ router.get("/", async (req, res) => {
   }
 });
 
+router.get("/all-categories-list", async (req, res) => {
+  try {
+    const categories = await Product.aggregate([
+      {
+        $match: {
+          uploadstatus: "approved",
+          categoryName: { $ne: "" },
+        },
+      },
+      {
+        $group: {
+          _id: "$categoryName",
+          categoryImg: { $first: "$categoryImg" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          categoryName: "$_id",
+          categoryImg: 1,
+        },
+      },
+      { $sort: { categoryName: 1 } },
+    ]);
+
+    res.json({ categories });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server Error" });
+  }
+});
 
 // UPDATE imagesHash by product id
 router.patch("/:id/images-hash", async (req, res) => {
@@ -1005,7 +1036,10 @@ router.get("/productsdata", async (req, res) => {
   try {
     const { category, subcategory, child,brand,title, page = 1, limit = 20 } = req.query;
 
-  const filter = {};
+ const filter = {};
+
+// ✅ শুধু approved product show হবে
+filter.uploadstatus = "approved";
 
 if (category) {
   filter.categoryName = {
@@ -1597,65 +1631,36 @@ router.get("/search", async (req, res) => {
       return res.status(200).json([]);
     }
 
-    // সব product একবারে না এনে DB তেই filter করবো
     const products = await Product.find({
       $or: [
         { categoryName: { $regex: query, $options: "i" } },
         { subcategoryName: { $regex: query, $options: "i" } },
         { childcategoryName: { $regex: query, $options: "i" } },
+        { title: { $regex: query, $options: "i" } }, // ✅ যোগ করো
+        { brandName: { $regex: query, $options: "i" } }, // ✅ চাইলে brand ও যোগ করো
       ],
     }).limit(30);
 
-    // suggestion structure বানানো
     const matched = [];
 
     products.forEach((product) => {
-      if (
-        product.categoryName &&
-        product.categoryName.toLowerCase().includes(query)
-      ) {
-        matched.push({
-          type: "Category",
-          label: product.categoryName,
-          link: `/category/${encodeURIComponent(product.categoryName)}`,
-          image: product.categoryImg,
-        });
-      }
+      // ... আগের category/subcategory/childcategory matching যেমন আছে সেটাই রাখো
 
+      // ✅ TITLE matching যোগ করো
       if (
-        product.subcategoryName &&
-        product.subcategoryName.toLowerCase().includes(query)
+        product.title &&
+        product.title.toLowerCase().includes(query)
       ) {
         matched.push({
-          type: "Subcategory",
-          label: product.subcategoryName,
-          link: `/category/${encodeURIComponent(
-            product.categoryName
-          )}/${encodeURIComponent(product.subcategoryName)}`,
-          image: product.subcategoryImg,
-        });
-      }
-
-      if (
-        product.childcategoryName &&
-        product.childcategoryName.toLowerCase().includes(query)
-      ) {
-        matched.push({
-          type: "Childcategory",
-          label: product.childcategoryName,
-          link: `/category/${encodeURIComponent(
-            product.categoryName
-          )}/${encodeURIComponent(
-            product.subcategoryName
-          )}/${encodeURIComponent(product.childcategoryName)}`,
-          image: product.childcategoryImg,
+          type: "Product",
+          label: product.title,
+          link: `/product-search/${slugify(product.title, { lower: true, strict: true })}`,
+          image: product.images?.[0] || product.childcategoryImg || "",
         });
       }
     });
 
-    // duplicate সরানো
     const unique = Array.from(new Map(matched.map((m) => [m.label, m])).values());
-
     res.status(200).json(unique.slice(0, 10));
   } catch (err) {
     console.error("Error searching products:", err);
