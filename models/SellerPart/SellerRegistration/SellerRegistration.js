@@ -24,6 +24,16 @@ const sellerSchema = mongoose.Schema(
       enum: ["Pending", "Approved", "Rejected"],
       default: "Pending",
     },
+       // 🆕 Seller Verification (Badge) System
+    verified: { type: Boolean, default: false },
+    verificationStatus: {
+      type: String,
+      enum: ["Not Requested", "Pending", "Approved", "Rejected"],
+      default: "Not Requested",
+    },
+    verificationRequestedAt: { type: Date, default: null },
+    verificationReviewedAt: { type: Date, default: null },
+    verificationRejectReason: { type: String, default: "" },
   },
   { timestamps: true }
 );

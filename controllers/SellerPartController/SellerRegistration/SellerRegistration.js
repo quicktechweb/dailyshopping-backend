@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import Seller from "../../../models/SellerPart/SellerRegistration/SellerRegistration.js";
+import Product from "../../../models/Product.js";
 
 // Register new seller
 export const registerSeller = async (req, res) => {
@@ -37,6 +38,7 @@ export const registerSeller = async (req, res) => {
       mobileNumber, email, city, shopName, password: hashedPassword,
       nidNumber, nidFrontImg, nidBackImg, tradeLicenseNumber,
       tradeLicenseImg, tinNumber, tinCertificateImg,
+      // status defaults to "Pending" automatically — this IS the verification request
     });
 
     const savedSeller = await newSeller.save();
@@ -44,7 +46,7 @@ export const registerSeller = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Seller registration submitted successfully",
+      message: "Seller registration submitted successfully. Waiting for admin verification.",
       seller: sellerData,
     });
   } catch (err) {
@@ -152,10 +154,12 @@ export const resetPasswordSeller = async (req, res) => {
   }
 };
 
-// Get all sellers (admin use)
+// Get all sellers (admin use) — supports ?status=Pending to show only verification requests
 export const getSellers = async (req, res) => {
   try {
-    const sellers = await Seller.find().select("-password");
+    const { status } = req.query;
+    const filter = status ? { status } : {};
+    const sellers = await Seller.find(filter).select("-password").sort({ createdAt: -1 });
     res.json(sellers);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -172,10 +176,73 @@ export const getSellerById = async (req, res) => {
   }
 };
 
+// 🔹 Seller side — check my own verification status using sellerId (e.g. SLR-000001)
+export const getSellerVerificationStatus = async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+    const seller = await Seller.findOne({ sellerId }).select("sellerId shopName status");
+    if (!seller) return res.status(404).json({ success: false, message: "Seller not found" });
+
+    res.json({
+      success: true,
+      sellerId: seller.sellerId,
+      shopName: seller.shopName,
+      status: seller.status, // "Pending" | "Approved" | "Rejected"
+      isMall: seller.status === "Approved",
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// 🔹 Seller side — send / re-send a verification request
+// (used by the "Request Verification" button on the seller dashboard)
+export const requestVerification = async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+    const seller = await Seller.findOne({ sellerId });
+    if (!seller) return res.status(404).json({ success: false, message: "Seller not found" });
+
+    if (seller.status === "Approved") {
+      return res.status(400).json({ success: false, message: "This shop is already verified" });
+    }
+
+    seller.status = "Pending";
+    seller.verificationRequestedAt = new Date();
+    await seller.save();
+
+    res.json({
+      success: true,
+      message: "Verification request sent. Please wait for admin approval.",
+      status: seller.status,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Admin approves / rejects a seller's verification request
 export const updateSellerStatus = async (req, res) => {
   try {
-    const { status } = req.body;
-    const updated = await Seller.findByIdAndUpdate(req.params.id, { status }, { new: true }).select("-password");
+    const { status } = req.body; // "Approved" | "Rejected" | "Pending"
+
+    const updated = await Seller.findByIdAndUpdate(
+      req.params.id,
+      { status },
+      { new: true }
+    ).select("-password");
+
+    if (!updated) {
+      return res.status(404).json({ message: "Seller not found" });
+    }
+
+    // 🏬 Sync the Mall badge onto EVERY product this seller already has
+    // (old ones uploaded before verification get updated too — no per-product check needed)
+    await Product.updateMany(
+      { sellerId: updated.sellerId },
+      { isMall: status === "Approved" }
+    );
+
     res.json(updated);
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -188,5 +255,78 @@ export const deleteSeller = async (req, res) => {
     res.json({ message: "Seller deleted" });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+};
+
+
+// 🆕 Seller নিজে verification request পাঠাবে
+export const requestSellerVerification = async (req, res) => {
+  try {
+    const seller = await Seller.findById(req.params.id);
+    if (!seller) return res.status(404).json({ success: false, message: "Seller not found" });
+
+    if (seller.verificationStatus === "Pending") {
+      return res.status(400).json({ success: false, message: "Verification already pending, wait for admin review" });
+    }
+    if (seller.verificationStatus === "Approved") {
+      return res.status(400).json({ success: false, message: "You are already verified" });
+    }
+
+    seller.verificationStatus = "Pending";
+    seller.verificationRequestedAt = new Date();
+    seller.verificationRejectReason = "";
+    await seller.save();
+
+    const { password: _pw, ...sellerData } = seller.toObject();
+    res.json({ success: true, message: "Verification request sent to admin", seller: sellerData });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// 🆕 Admin — সব pending verification request দেখবে
+export const getVerificationRequests = async (req, res) => {
+  try {
+    const { status } = req.query; // ?status=Pending (optional filter)
+    const filter = status ? { verificationStatus: status } : { verificationStatus: { $ne: "Not Requested" } };
+    const sellers = await Seller.find(filter).select("-password").sort({ verificationRequestedAt: -1 });
+    res.json({ success: true, sellers });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// 🆕 Admin — Approve / Reject করবে
+export const reviewSellerVerification = async (req, res) => {
+  try {
+    const { action, reason } = req.body; // action: "approve" | "reject"
+    const seller = await Seller.findById(req.params.id);
+    if (!seller) return res.status(404).json({ success: false, message: "Seller not found" });
+
+    if (action === "approve") {
+      seller.verified = true;
+      seller.verificationStatus = "Approved";
+      seller.verificationRejectReason = "";
+
+      // ✅ এই seller এর সব product এ verified flag বসিয়ে দেওয়া হচ্ছে
+      await Product.updateMany({ sellerId: seller.sellerId }, { $set: { verified: true } });
+    } else if (action === "reject") {
+      seller.verified = false;
+      seller.verificationStatus = "Rejected";
+      seller.verificationRejectReason = reason || "Documents not valid";
+
+      // চাইলে reject হলে product গুলো unverified করে দিতে পারো
+      await Product.updateMany({ sellerId: seller.sellerId }, { $set: { verified: false } });
+    } else {
+      return res.status(400).json({ success: false, message: "Invalid action" });
+    }
+
+    seller.verificationReviewedAt = new Date();
+    await seller.save();
+
+    const { password: _pw, ...sellerData } = seller.toObject();
+    res.json({ success: true, message: `Seller ${action}d`, seller: sellerData });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };

@@ -63,6 +63,7 @@ const productSchema = new mongoose.Schema(
     totalcupon: Number,
     remaining: Number,
     sellerId: { type: String, default: "" },
+      verified: { type: Boolean, default: false },
 mobileNumber: { type: String, default: "" },
 shopName: { type: String, default: "" },
     brandName: { type: String, default: "" },

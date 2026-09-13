@@ -1,6 +1,7 @@
 import express from "express";
 import Product from "../models/Product.js";
 import CouponPurchase from "../models/CouponPurchase.js";
+import Seller from "../models/SellerPart/SellerRegistration/SellerRegistration.js";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
@@ -89,6 +90,14 @@ router.post("/", async (req, res) => {
     const data = req.body;
     const images = data.images || [];
     const imagesHash = [];
+
+     // ✅ Seller verified কিনা backend নিজে check করে বসাবে (client কে বিশ্বাস করা যাবে না)
+    if (data.sellerId) {
+      const seller = await Seller.findOne({ sellerId: data.sellerId }).select("verified");
+      data.verified = seller?.verified || false;
+    } else {
+      data.verified = false;
+    }
 
     for (const imgUrl of images) {
       const ext = path.extname(imgUrl).toLowerCase();
@@ -596,6 +605,36 @@ router.get("/", async (req, res) => {
   }
 });
 
+router.get("/mall", async (req, res) => {
+  try {
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Transfer-Encoding": "chunked",
+    });
+
+    res.write("[");
+    let first = true;
+
+    // ✅ শুধু approved + verified (Mall) product
+    const cursor = Product.find({ uploadstatus: "approved", verified: true })
+      .sort({ createdAt: -1 })
+      .lean()
+      .cursor();
+
+    for (let product = await cursor.next(); product != null; product = await cursor.next()) {
+      if (!first) res.write(",");
+      first = false;
+      res.write(JSON.stringify(product));
+    }
+
+    res.write("]");
+    res.end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server Error" });
+  }
+});
+
 router.get("/all-categories-list", async (req, res) => {
   try {
     const categories = await Product.aggregate([
@@ -628,7 +667,7 @@ router.get("/all-categories-list", async (req, res) => {
   }
 });
 
-// UPDATE imagesHash by product id
+// UPDATE imagesHash by product id"
 router.patch("/:id/images-hash", async (req, res) => {
   try {
     const { id } = req.params;
