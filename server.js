@@ -40,6 +40,7 @@ import reviewRoutes from "./routes/reviewRoutes.js";
 import bannerlandingRoutes from "./routes/LandingPage/bannerpartRoute.js";
 import popularSectionRoute from "./routes/LandingPage/popularSectionRoute.js";
 import sellerFollowRoutes from "./routes/sellerFollowRoute.js";
+import sellerShopRoutes from "./routes/sellerShopRoute.js";
 
 import  fs from "fs";
 import  multer from "multer";
@@ -113,6 +114,7 @@ app.use("/api/sellers", sellerRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/bannerlanding", bannerlandingRoutes);
 app.use("/api/popular", popularSectionRoute);
+app.use("/api/seller-shop", sellerShopRoutes);
 // ... other app.use লাইনগুলোর সাথে
 app.use("/api/seller-follow", sellerFollowRoutes);
 
