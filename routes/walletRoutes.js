@@ -1,6 +1,10 @@
 import express from "express";
 import UserData from "../models/User.js";
 import WithdrawRequest from "../models/WithdrawRequest.js";
+import Order from "../models/Order.js";
+import SellerWalletTransaction from "../models/SellerWalletTransaction.js";
+import SellerWithdrawRequest from "../models/SellerWithdrawRequest.js";
+import Seller from "../models/SellerPart/SellerRegistration/SellerRegistration.js";
 import axios from "axios";
 import dotenv from "dotenv";
 dotenv.config();
@@ -201,6 +205,73 @@ router.post("/withdraw-reject/:id", async (req, res) => {
 });
 
 
+// router.get("/admin/earnings", async (req, res) => {
+//   try {
+//     const result = await Order.aggregate([
+//       { $match: { commissionSettled: true } },
+//       { $unwind: "$products" },
+//       {
+//         $group: {
+//           _id: null,
+//           totalAdminEarning: { $sum: "$products.adminEarning" },
+//           totalSellerPayout: { $sum: "$products.sellerEarning" },
+//         },
+//       },
+//     ]);
+
+//     res.json({
+//       success: true,
+//       totalAdminEarning: result[0]?.totalAdminEarning || 0,
+//       totalSellerPayout: result[0]?.totalSellerPayout || 0,
+//     });
+//   } catch (err) {
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
+router.get("/admin/earnings", async (req, res) => {
+  try {
+    const result = await Order.aggregate([
+      { $unwind: "$products" },
+      {
+        $match: {
+          $or: [
+            { "products.adminEarning": { $gt: 0 } },
+            { "products.sellerEarning": { $gt: 0 } },
+          ],
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalAdminEarning: { $sum: "$products.adminEarning" },
+          totalSellerPayout: { $sum: "$products.sellerEarning" },
+        },
+      },
+    ]);
+
+    res.json({
+      success: true,
+      totalAdminEarning: result[0]?.totalAdminEarning || 0,
+      totalSellerPayout: result[0]?.totalSellerPayout || 0,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get("/seller/:sellerId/transactions", async (req, res) => {
+  try {
+    const transactions = await SellerWalletTransaction.find({
+      sellerId: req.params.sellerId,
+    }).sort({ createdAt: -1 });
+
+    res.json({ success: true, transactions });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // -------------------- Get User Withdraw Requests --------------------
 router.get("/my-requests/:userId", async (req, res) => {
   try {
@@ -218,6 +289,215 @@ router.get("/all-requests", async (req, res) => {
   try {
     const requests = await WithdrawRequest.find().sort({ createdAt: -1 });
     res.json({ success: true, requests });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ============================================================
+// 💸 SELLER WITHDRAW REQUEST SYSTEM
+// ============================================================
+
+// 🆕 Seller — Withdraw request submit করবে
+// Wallet balance এর বেশি request করতে পারবে না (pending request গুলোও ধরে হিসাব হবে)
+router.post("/seller/withdraw-request", async (req, res) => {
+  const { sellerId, amount, method, paymentNumber } = req.body;
+
+  const withdrawAmount = Number(amount);
+
+  if (!sellerId || !withdrawAmount || isNaN(withdrawAmount) || withdrawAmount <= 0 || !method || !paymentNumber) {
+    return res.status(400).json({ success: false, message: "সব তথ্য সঠিকভাবে দিন" });
+  }
+
+  try {
+    const seller = await Seller.findOne({ sellerId });
+    if (!seller) {
+      return res.status(404).json({ success: false, message: "Seller not found" });
+    }
+
+    const currentBalance = Number(seller.walletBalance || 0);
+
+    // এখনো pending থাকা withdraw request গুলোর মোট টাকা বের করা হচ্ছে,
+    // যাতে seller একসাথে অনেকগুলো request দিয়ে balance এর বেশি টাকা "hold" করতে না পারে
+    const pendingAgg = await SellerWithdrawRequest.aggregate([
+      { $match: { sellerId, status: "pending" } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
+    const pendingTotal = pendingAgg[0]?.total || 0;
+
+    const availableBalance = currentBalance - pendingTotal;
+
+    if (withdrawAmount > availableBalance) {
+      return res.status(400).json({
+        success: false,
+        message: `Withdraw amount আপনার available balance (৳${availableBalance.toFixed(
+          2
+        )}) এর চেয়ে বেশি হতে পারবে না`,
+      });
+    }
+
+    const request = await SellerWithdrawRequest.create({
+      sellerId,
+      shopName: seller.shopName,
+      mobileNumber: seller.mobileNumber,
+      email: seller.email,
+      paymentNumber,
+      method,
+      amount: withdrawAmount,
+      walletBalanceAtRequest: currentBalance,
+      status: "pending",
+    });
+
+    res.json({ success: true, message: "Withdraw request submitted", request });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// 🆕 Seller — নিজের সব withdraw request দেখবে
+router.get("/seller/:sellerId/withdraw-requests", async (req, res) => {
+  try {
+    const requests = await SellerWithdrawRequest.find({
+      sellerId: req.params.sellerId,
+    }).sort({ createdAt: -1 });
+
+    res.json({ success: true, requests });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 🆕 Admin — সব seller withdraw request দেখবে (status filter করে দেখা যাবে: ?status=pending)
+router.get("/admin/seller-withdraw-requests", async (req, res) => {
+  try {
+    const { status } = req.query;
+    const filter = status ? { status } : {};
+    const requests = await SellerWithdrawRequest.find(filter).sort({ createdAt: -1 });
+    res.json({ success: true, requests });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 🆕 Admin — Seller withdraw request approve করবে (এখানেই আসল balance কাটা হবে)
+router.post("/admin/seller-withdraw-approve/:id", async (req, res) => {
+  const { adminName } = req.body;
+
+  try {
+    const request = await SellerWithdrawRequest.findById(req.params.id);
+    if (!request) {
+      return res.status(404).json({ success: false, message: "Request not found" });
+    }
+    if (request.status !== "pending") {
+      return res.status(400).json({ success: false, message: "Request already processed" });
+    }
+
+    const seller = await Seller.findOne({ sellerId: request.sellerId });
+    if (!seller) {
+      return res.status(404).json({ success: false, message: "Seller not found" });
+    }
+
+    if (Number(seller.walletBalance || 0) < request.amount) {
+      return res.status(400).json({
+        success: false,
+        message: "Seller এর wallet এ পর্যাপ্ত balance নেই",
+      });
+    }
+
+    seller.walletBalance = Number(seller.walletBalance || 0) - request.amount;
+    await seller.save();
+
+    await SellerWalletTransaction.create({
+      sellerId: request.sellerId,
+      type: "debit",
+      amount: request.amount,
+      note: `Withdraw approved · ${request.method} (${request.paymentNumber})`,
+      balanceAfter: seller.walletBalance,
+    });
+
+    request.status = "approved";
+    request.adminActionBy = adminName || "Admin";
+    request.actionedAt = new Date();
+    await request.save();
+
+    res.json({
+      success: true,
+      message: "Withdraw request approved",
+      request,
+      walletBalance: seller.walletBalance,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 🆕 Admin — Seller withdraw request reject করবে (balance কাটা হয়নি বলে ফেরত দেওয়ার দরকার নেই)
+router.post("/admin/seller-withdraw-reject/:id", async (req, res) => {
+  const { adminName, reason } = req.body;
+
+  try {
+    const request = await SellerWithdrawRequest.findById(req.params.id);
+    if (!request) {
+      return res.status(404).json({ success: false, message: "Request not found" });
+    }
+    if (request.status !== "pending") {
+      return res.status(400).json({ success: false, message: "Request already processed" });
+    }
+
+    request.status = "rejected";
+    request.adminNote = reason || "";
+    request.adminActionBy = adminName || "Admin";
+    request.actionedAt = new Date();
+    await request.save();
+
+    res.json({ success: true, message: "Withdraw request rejected", request });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 🆕 Admin — Order/Product wise commission breakdown (কোন order থেকে কত commission পেয়েছে)
+router.get("/admin/commission-details", async (req, res) => {
+  try {
+    const rows = await Order.aggregate([
+      { $unwind: "$products" },
+      {
+        $match: {
+          $or: [
+            { "products.adminEarning": { $gt: 0 } },
+            { "products.sellerEarning": { $gt: 0 } },
+          ],
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          orderId: "$_id",
+          paymentId: "$paymentId",
+          orderStatus: "$status",
+          title: "$products.title",
+          shopName: "$products.shopName",
+          sellerId: "$products.sellerId",
+          quantity: "$products.quantity",
+          productPrice: "$products.ProductPrice",
+          commissionPercent: {
+            $cond: [
+              { $gt: ["$products.productwiseDiscount", 0] },
+              "$products.productwiseDiscount",
+              "$products.adminCommission",
+            ],
+          },
+          adminEarning: "$products.adminEarning",
+          sellerEarning: "$products.sellerEarning",
+          createdAt: "$createdAt",
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      { $limit: 1000 },
+    ]);
+
+    res.json({ success: true, rows });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -449,7 +729,7 @@ router.get("/bkash/callback", async (req, res) => {
     res.send(`
       <h1 style="color:green">Payment Successful ✔</h1>
       <p>Amount Added: ৳${amountNumber}</p>
-      <a href="http://localhost:5173">Return to App</a>
+      <a href="https://scintillating-biscotti-6f194e.netlify.app">Return to App</a>
     `);
   } catch (err) {
     console.log("EXECUTE ERROR", err.response?.data);

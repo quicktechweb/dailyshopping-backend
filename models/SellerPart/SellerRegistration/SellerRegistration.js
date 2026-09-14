@@ -26,6 +26,7 @@ const sellerSchema = mongoose.Schema(
     },
        // 🆕 Seller Verification (Badge) System
     verified: { type: Boolean, default: false },
+      walletBalance: { type: Number, default: 0 }, 
     verificationStatus: {
       type: String,
       enum: ["Not Requested", "Pending", "Approved", "Rejected"],

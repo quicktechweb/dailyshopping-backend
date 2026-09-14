@@ -25,8 +25,14 @@ const OrderSchema = new mongoose.Schema(
          sellerId: { type: String, default: "" },        // ⬅️ NEW
     mobileNumber: { type: String, default: "" },     // ⬅️ NEW
     shopName: { type: String, default: "" }, 
+    commissionSettled: { type: Boolean, default: false },
      reviewed: { type: Boolean, default: false },
+     adminCommission: { type: Number, default: 0 },
+    productwiseDiscount: { type: Number, default: 0 },
+     adminEarning: { type: Number, default: 0 },   // এই লাইন থেকে admin কত পেয়েছে
+        sellerEarning: { type: Number, default: 0 },
       },
+      
     ],
     totals: {
       quantity: Number,
@@ -35,6 +41,7 @@ const OrderSchema = new mongoose.Schema(
       shipping: Number,
       grandtotal: Number,
     },
+    commissionSettled: { type: Boolean, default: false },
    status: {
   type: String,
   enum: [

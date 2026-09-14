@@ -3,6 +3,8 @@ import dotenv from "dotenv";
 import cors from "cors";
 import axios from "axios";
 import connectDB from "./config/db.js";
+import { createServer } from "http";
+import { Server } from "socket.io";
 import categoryRoutes from "./routes/categoryRoutes.js";
 import subcategoryRoutes from "./routes/subcategoryRoutes.js";
 import childCategoryRoute from "./routes/childCategoryRoute.js";
@@ -41,6 +43,8 @@ import bannerlandingRoutes from "./routes/LandingPage/bannerpartRoute.js";
 import popularSectionRoute from "./routes/LandingPage/popularSectionRoute.js";
 import sellerFollowRoutes from "./routes/sellerFollowRoute.js";
 import sellerShopRoutes from "./routes/sellerShopRoute.js";
+import chatRoutes from "./routes/Message/chatRoutes.js";
+import registerChatSocket from "./middleware/socket/chatSocket.js";
 
 import  fs from "fs";
 import  multer from "multer";
@@ -63,7 +67,7 @@ dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 dotenv.config();
 const app = express();
-// app.use(cors({ origin: "http://localhost:5173", credentials: true }));
+// app.use(cors({ origin: "https://scintillating-biscotti-6f194e.netlify.app", credentials: true }));
 app.use(cors());
 app.use(express.json());
 // MongoDB Connection
@@ -117,6 +121,7 @@ app.use("/api/popular", popularSectionRoute);
 app.use("/api/seller-shop", sellerShopRoutes);
 // ... other app.use লাইনগুলোর সাথে
 app.use("/api/seller-follow", sellerFollowRoutes);
+app.use("/api/chat", chatRoutes);
 
 app.get("/envtest", (req, res) => {
   res.json({
@@ -396,7 +401,18 @@ app.post("/upload", upload.single("image"), async (req, res) => {
 
 // Server Start
 const PORT = 5000;
-app.listen(PORT, () => {
+const httpServer = createServer(app);
+
+const io = new Server(httpServer, {
+  cors: {
+    origin: "https://scintillating-biscotti-6f194e.netlify.app", // production এ নিজের frontend domain বসিয়ে দিও
+    methods: ["GET", "POST"],
+  },
+});
+
+registerChatSocket(io);
+
+httpServer.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log("🌍 BKASH_BASE_URL =", process.env.BKASH_BASE_URL);
 });

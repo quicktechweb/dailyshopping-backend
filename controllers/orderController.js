@@ -1,6 +1,8 @@
 import Order from "../models/Order.js";
 import UserData from "../models/User.js";
 import Product from "../models/Product.js";
+import Seller from "../models/SellerPart/SellerRegistration/SellerRegistration.js";
+import SellerWalletTransaction from "../models/SellerWalletTransaction.js";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -651,6 +653,50 @@ export const updateOrderStatus = async (req, res) => {
       await adjustStock(order.products, "increase");
     }
     // ============================
+
+        // ============================
+    // 💰 WALLET SETTLEMENT LOGIC (NEW)
+    // ============================
+    if (status === "delivered" && oldStatus !== "delivered" && !order.commissionSettled) {
+      for (const item of order.products) {
+        const lineTotal = (item.ProductPrice || 0) * (item.quantity || 1);
+
+        // ✅ productwiseDiscount থাকলে সেটাই commission %, নাহলে adminCommission
+        const commissionPercent =
+          item.productwiseDiscount > 0 ? item.productwiseDiscount : (item.adminCommission || 0);
+
+        const adminEarning = Number(((lineTotal * commissionPercent) / 100).toFixed(2));
+        const sellerEarning = Number((lineTotal - adminEarning).toFixed(2));
+
+        // 🔹 record এর জন্য এই লাইনেই বসিয়ে রাখা হচ্ছে
+        item.adminEarning = adminEarning;
+        item.sellerEarning = sellerEarning;
+
+        // 🔹 seller এর wallet এ টাকা যোগ হচ্ছে
+        if (item.sellerId) {
+          const updatedSeller = await Seller.findOneAndUpdate(
+            { sellerId: item.sellerId },
+            { $inc: { walletBalance: sellerEarning } },
+            { new: true }
+          );
+
+          if (updatedSeller) {
+            await SellerWalletTransaction.create({
+              sellerId: item.sellerId,
+              orderId: order._id,
+              type: "credit",
+              amount: sellerEarning,
+              note: `Order #${order.paymentId} - ${item.title}`,
+              balanceAfter: updatedSeller.walletBalance,
+            });
+          }
+        }
+      }
+
+      order.commissionSettled = true; // 🔒 দ্বিতীয়বার আর settle হবে না
+    }
+    // ============================
+
 
     await order.save();
 
