@@ -44,6 +44,7 @@ import popularSectionRoute from "./routes/LandingPage/popularSectionRoute.js";
 import sellerFollowRoutes from "./routes/sellerFollowRoute.js";
 import sellerShopRoutes from "./routes/sellerShopRoute.js";
 import chatRoutes from "./routes/Message/chatRoutes.js";
+import referralSettingsRoutes from "./routes/RefferalsystemRoute.js";
 import registerChatSocket from "./middleware/socket/chatSocket.js";
 
 import  fs from "fs";
@@ -122,6 +123,7 @@ app.use("/api/seller-shop", sellerShopRoutes);
 // ... other app.use লাইনগুলোর সাথে
 app.use("/api/seller-follow", sellerFollowRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/refferalsystem", referralSettingsRoutes);
 
 app.get("/envtest", (req, res) => {
   res.json({

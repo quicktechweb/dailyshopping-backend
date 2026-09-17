@@ -15,6 +15,7 @@ import {
   walletmobilePayController,
   updateOrderConsignment,
   updateBulkConsignment,
+  getSellersWithOrders,
   cancelOrder,
   deleteOrders,
   getMyCancellations,
@@ -41,6 +42,7 @@ router.post("/orders/:id/return", requestReturn);       // ⬅️ NEW
 router.get("/my-returns", getMyReturns);                 // ⬅️ NEW
 router.put("/orders/:id/return-status", updateReturnStatus);
 router.get("/returns", getAllReturns);
+router.get("/orders-seller-list", getSellersWithOrders);
 
 // PUT /api/orders/:id
 router.put("/update-consignment/:id", updateOrderConsignment);

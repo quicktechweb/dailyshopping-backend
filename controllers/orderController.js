@@ -3,6 +3,12 @@ import UserData from "../models/User.js";
 import Product from "../models/Product.js";
 import Seller from "../models/SellerPart/SellerRegistration/SellerRegistration.js";
 import SellerWalletTransaction from "../models/SellerWalletTransaction.js";
+import {
+  findUserForReferral,
+  calculateReferralRedemption,
+  commitReferralRedemption,
+  refundReferralRedemption,
+} from "../utils/referralRedeem.js";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -86,28 +92,39 @@ export const bkashCallbackHandler = async (req, res) => {
       return res.send("Payment not completed!");
 
     // Save order in DB
-    const newOrder = new Order({
-      customer: orderData.customer,
-      products: orderData.products,
-      totals: orderData.totals,
-      status: "pending",
-      orderPayment: "paid",
-      paymentMethod: "bKash",
-      paymentInfo: {
-        trxID: execRes.data.trxID,
-        amount: execRes.data.amount,
-        phone: orderData.customer.phone,
-        date: new Date(),
-      },
-      userAuth: orderData.userAuth,
-      userId: orderData.userId || "",
-       sellerId: orderData.products?.[0]?.sellerId || "",       // ⬅️ NEW
-      mobileNumber: orderData.products?.[0]?.mobileNumber || "", // ⬅️ NEW
-      shopName: orderData.products?.[0]?.shopName || "",  
-    });
+   const newOrder = new Order({
+  customer: orderData.customer,
+  products: orderData.products,
+  totals: orderData.totals,
+  status: "pending",
+  orderPayment: "paid",
+  paymentMethod: "bKash",
+  paymentInfo: {
+    trxID: execRes.data.trxID,
+    amount: execRes.data.amount,
+    phone: orderData.customer.phone,
+    date: new Date(),
+  },
+  userAuth: orderData.userAuth,
+  userId: orderData.userId || "",
+  sellerId: orderData.products?.[0]?.sellerId || "",
+  mobileNumber: orderData.products?.[0]?.mobileNumber || "",
+  shopName: orderData.products?.[0]?.shopName || "",
+  referralRedeem: orderData.referralRedeem || { used: false, pointsUsed: 0, amount: 0, takaPerPoint: 0 }, // ⬅️ NEW
+});
 
-    const savedOrder = await newOrder.save();
-    delete pendingPayments[paymentID];
+const savedOrder = await newOrder.save();
+
+// ⬅️ NEW - payment confirm hoise, ekhon point commit
+if (orderData.referralRedeem?.used) {
+  const referralUser = await findUserForReferral({ userId: orderData.userId, userAuth: orderData.userAuth });
+  if (referralUser) {
+    await commitReferralRedemption(referralUser, orderData.referralRedeem, savedOrder._id);
+  }
+}
+
+delete pendingPayments[paymentID];
+
 
     // 🔹 Redirect to frontend with query params
     res.redirect(`https://luckyshop.com.bd/payment-success?paymentID=${execRes.data.trxID}&orderID=${savedOrder._id}`);
@@ -122,26 +139,51 @@ export const bkashCallbackHandler = async (req, res) => {
 
 
 // Cash on Delivery Order
-export const createCODOrder = async (req, res) => {
+  export const createCODOrder = async (req, res) => {
   try {
-    const { customer, products, totals, userAuth,userId  } = req.body;
+    const { customer, products, totals, userAuth, userId, useReferralCoins } = req.body;
+
+    let referralRedeem = { used: false, pointsUsed: 0, amount: 0, takaPerPoint: 0 };
+    let referralUser = null;
+    const finalTotals = { ...totals, referralDiscount: 0 };
+
+    if (useReferralCoins !== false) {
+      referralUser = await findUserForReferral({ userId, userAuth });
+      const redemption = await calculateReferralRedemption(referralUser, totals?.grandtotal);
+      if (redemption.pointsUsed > 0) {
+        referralRedeem = {
+          used: true,
+          pointsUsed: redemption.pointsUsed,
+          amount: redemption.amount,
+          takaPerPoint: redemption.takaPerPoint,
+        };
+        finalTotals.referralDiscount = redemption.amount;
+        finalTotals.grandtotal = Number((totals.grandtotal - redemption.amount).toFixed(2));
+      }
+    }
 
     const newOrder = new Order({
       customer,
       products,
-      totals,
+      totals: finalTotals,
       orderPayment: "unpaid",
       status: "pending",
       paymentMethod: "Cash on Delivery",
       userAuth,
-        userId: userId || "",  
+      userId: userId || "",
       date: new Date(),
-        sellerId: products?.[0]?.sellerId || "",        // ⬅️ NEW
-      mobileNumber: products?.[0]?.mobileNumber || "", // ⬅️ NEW
+      sellerId: products?.[0]?.sellerId || "",
+      mobileNumber: products?.[0]?.mobileNumber || "",
       shopName: products?.[0]?.shopName || "",
+      referralRedeem,
     });
 
     const savedOrder = await newOrder.save();
+
+    if (referralRedeem.used && referralUser) {
+      await commitReferralRedemption(referralUser, referralRedeem, savedOrder._id);
+    }
+
     res.json({ success: true, order: savedOrder });
   } catch (err) {
     console.error(err);
@@ -150,78 +192,64 @@ export const createCODOrder = async (req, res) => {
 };
 
 
- export const walletPayController = async (req, res) => {
+   export const walletPayController = async (req, res) => {
   try {
-    const { customer, products, totals, amount, auth ,userId } = req.body;
-
-    console.log("Received Wallet Pay Request:");
-    console.log("Customer:", customer);
-    console.log("Products:", products);
-    console.log("Totals:", totals);
-    console.log("Amount:", amount);
-    console.log("Auth:", auth);
+    const { customer, products, totals, amount, auth, userId, useReferralCoins } = req.body;
 
     let user;
+    if (!isNaN(auth)) user = await UserData.findOne({ phoneNumber: auth });
+    else user = await UserData.findOne({ email: auth });
 
-    // Detect if auth is phoneNumber or email
-    if (!isNaN(auth)) {
-      console.log("Auth detected as Phone Number");
-      user = await UserData.findOne({ phoneNumber: auth });
-    } else {
-      console.log("Auth detected as Email");
-      user = await UserData.findOne({ email: auth });
+    if (!user) return res.json({ success: false, message: "User not found" });
+
+    let referralRedeem = { used: false, pointsUsed: 0, amount: 0, takaPerPoint: 0 };
+    const finalTotals = { ...totals, referralDiscount: 0 };
+    let payableAmount = amount;
+
+    if (useReferralCoins !== false) {
+      const baseTotal = totals?.grandtotal ?? amount;
+      const redemption = await calculateReferralRedemption(user, baseTotal);
+      if (redemption.pointsUsed > 0) {
+        referralRedeem = {
+          used: true,
+          pointsUsed: redemption.pointsUsed,
+          amount: redemption.amount,
+          takaPerPoint: redemption.takaPerPoint,
+        };
+        finalTotals.referralDiscount = redemption.amount;
+        finalTotals.grandtotal = Number((baseTotal - redemption.amount).toFixed(2));
+        payableAmount = finalTotals.grandtotal;
+      }
     }
 
-    if (!user) {
-      console.log("❌ User not found!");
-      return res.json({ success: false, message: "User not found" });
+    if (user.walletBalance < payableAmount) {
+      return res.json({ success: false, message: "Insufficient Wallet Balance" });
     }
 
-    console.log("User Found:", user.email || user.phoneNumber);
-    console.log("Wallet Before:", user.walletBalance);
-
-    // Check balance
-    if (user.walletBalance < amount) {
-      console.log("❌ Insufficient Wallet Balance");
-      return res.json({
-        success: false,
-        message: "Insufficient Wallet Balance",
-      });
-    }
-
-    // Wallet calculation
     const walletBefore = user.walletBalance;
-    const walletAfter = walletBefore - amount;
-
-    // Update wallet balance
+    const walletAfter = walletBefore - payableAmount;
     user.walletBalance = walletAfter;
     await user.save();
 
-    console.log("Wallet After:", walletAfter);
-    console.log("Wallet Balance Updated Successfully!");
-
-    // Create order
     const newOrder = await Order.create({
       customer,
       products,
-      totals,
+      totals: finalTotals,
       paymentMethod: "wallet",
       orderPayment: "paid",
       status: "pending",
       userAuth: auth,
-       userId: userId || "",
-       sellerId: products?.[0]?.sellerId || "",        // ⬅️ NEW
-      mobileNumber: products?.[0]?.mobileNumber || "", // ⬅️ NEW
+      userId: userId || "",
+      sellerId: products?.[0]?.sellerId || "",
+      mobileNumber: products?.[0]?.mobileNumber || "",
       shopName: products?.[0]?.shopName || "",
-      paymentInfo: {
-        amount,
-        date: new Date(),
-        walletBefore: walletBefore,
-        walletAfter: walletAfter,
-      },
+      referralRedeem,
+      paymentInfo: { amount: payableAmount, date: new Date(), walletBefore, walletAfter },
     });
 
-    console.log("Order Created Successfully:", newOrder._id);
+    if (referralRedeem.used) {
+      await commitReferralRedemption(user, referralRedeem, newOrder._id);
+    }
 
     res.json({
       success: true,
@@ -229,13 +257,9 @@ export const createCODOrder = async (req, res) => {
       order: newOrder,
       updatedWalletBalance: walletAfter,
     });
-
   } catch (err) {
     console.error("Wallet Pay Error:", err);
-    res.json({
-      success: false,
-      message: "Something went wrong",
-    });
+    res.json({ success: false, message: "Something went wrong" });
   }
 };
 
@@ -778,6 +802,42 @@ export const deleteOrder = async (req, res) => {
   }
 };
 
+// ✅ Get all sellers who have at least one order (for admin "Seller Orders" list)
+export const getSellersWithOrders = async (req, res) => {
+  try {
+    const sellers = await Order.aggregate([
+      { $match: { sellerId: { $ne: "" } } },
+      {
+        $group: {
+          _id: "$sellerId",
+          shopName: { $last: "$shopName" },
+          mobileNumber: { $last: "$mobileNumber" },
+          totalOrders: { $sum: 1 },
+          totalProducts: { $sum: { $size: "$products" } },
+          totalRevenue: { $sum: "$totals.grandtotal" },
+          lastOrderDate: { $max: "$createdAt" },
+        },
+      },
+      { $sort: { lastOrderDate: -1 } },
+    ]);
+
+    const formatted = sellers.map((s) => ({
+      sellerId: s._id,
+      shopName: s.shopName || "N/A",
+      mobileNumber: s.mobileNumber || "",
+      totalOrders: s.totalOrders,
+      totalProducts: s.totalProducts,
+      totalRevenue: s.totalRevenue || 0,
+      lastOrderDate: s.lastOrderDate,
+    }));
+
+    res.json({ success: true, sellers: formatted });
+  } catch (error) {
+    console.error("Error fetching sellers with orders:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
 
 // // Get orders of a specific user
 // export const getMyOrders = async (req, res) => {
@@ -901,7 +961,6 @@ export const cancelOrder = async (req, res) => {
 
     const oldStatus = order.status;
 
-    // statusHistory আপডেট
     if (!order.statusHistory || order.statusHistory.length === 0) {
       order.statusHistory = [oldStatus || "pending"];
     }
@@ -911,7 +970,6 @@ export const cancelOrder = async (req, res) => {
     order.cancelReason = reason;
     order.cancelNote = note || "";
 
-    // যদি stock আগে "accepted" হওয়ার সময় কমানো হয়ে থাকে, ফিরিয়ে দাও
     if (oldStatus === "accepted") {
       for (const item of order.products) {
         const productId = item.productId || item._id;
@@ -920,6 +978,7 @@ export const cancelOrder = async (req, res) => {
         await Product.updateOne({ _id: productId }, { $inc: { stock: qty } });
       }
     }
+    await refundReferralRedemption(order);
 
     await order.save();
 

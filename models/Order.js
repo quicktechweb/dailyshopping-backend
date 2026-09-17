@@ -41,6 +41,16 @@ const OrderSchema = new mongoose.Schema(
       shipping: Number,
       grandtotal: Number,
     },
+
+    referralRedeem: {
+  used: { type: Boolean, default: false },
+  pointsUsed: { type: Number, default: 0 },
+  amount: { type: Number, default: 0 },
+  takaPerPoint: { type: Number, default: 0 },
+  refunded: { type: Boolean, default: false },
+  refundedAt: { type: Date, default: null },
+},
+
     commissionSettled: { type: Boolean, default: false },
    status: {
   type: String,

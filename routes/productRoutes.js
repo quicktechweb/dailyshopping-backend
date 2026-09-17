@@ -699,6 +699,24 @@ router.patch("/:id/images-hash", async (req, res) => {
 });
 
 
+// ✅ Product count per seller — powers the Admin "Seller Product Upload List" page
+// ⚠️ Must be placed ABOVE `router.get("/:id", ...)` in productRoutes.js
+// (put it right after the `/seller-search/:sellerId` block, before `/pending-products`)
+router.get("/seller-counts", async (req, res) => {
+  try {
+    const counts = await Product.aggregate([
+      { $group: { _id: "$sellerId", productCount: { $sum: 1 } } },
+    ]);
+    const map = {};
+    counts.forEach((c) => {
+      if (c._id) map[c._id] = c.productCount;
+    });
+    res.json({ success: true, counts: map });
+  } catch (err) {
+    console.error("❌ seller-counts error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
 
 router.get("/newlatestproduct", async (req, res) => {
   try {

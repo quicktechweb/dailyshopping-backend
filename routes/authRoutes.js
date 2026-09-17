@@ -5,7 +5,7 @@ import { saveOtp, verifyOtp } from "../utils/otpStore.js";
 import { nanoid } from "nanoid";
 import BadgeLevel from "../models/BadgeLevel.js";
 import bcrypt from "bcryptjs";
-
+import ReferralSetting from "../models/RefferalSystem.js";
 const router = express.Router();
 
 
@@ -230,86 +230,158 @@ router.post("/verify-otp", (req, res) => {
 // });
 
 // ✅ Register User
- router.post("/register", async (req, res) => {
-  const { phoneNumber, password, displayName, referralCode } = req.body;
+//  router.post("/register", async (req, res) => {
+//   const { phoneNumber, password, displayName, referralCode } = req.body;
 
+//   try {
+//     const existingUser = await UserData.findOne({ phoneNumber });
+//     if (existingUser) {
+//       return res.status(400).json({ success: false, message: "Phone already registered" });
+//     }
+
+//     const myrefferalcode = `REF-${nanoid(8).toUpperCase()}`;
+//      const hashedPassword = await bcrypt.hash(password, 12);
+//      const userId = `USR-${nanoid(10)}`;
+//     const newUser = new UserData({
+//       phoneNumber,
+//       password: hashedPassword,
+//       displayName,
+//       referralCode: referralCode || "",
+//       myrefferalcode,
+//         userId, 
+//     });
+
+//     await newUser.save();
+
+//     // ------------------------
+//     // Referral Bonus Logic
+//     // ------------------------
+//     if (referralCode) {
+//       const directReferrer = await UserData.findOne({ myrefferalcode: referralCode });
+//       if (directReferrer) {
+//         // Direct referral
+//         directReferrer.walletBalance += 5;
+//         directReferrer.referralBalance = (directReferrer.referralBalance || 0) + 5;
+//         directReferrer.referralCount = (directReferrer.referralCount || 0) + 1;
+
+//         // Save referral history
+//         directReferrer.referralHistory.push({
+//           type: "direct",
+//           amount: 5,
+//           referredUser: phoneNumber
+//         });
+
+//         // Dynamic badge assignment
+//         const badges = await BadgeLevel.find();
+//         const userCount = directReferrer.referralCount;
+//         const badge = badges.find(b => userCount >= b.minCount && userCount <= b.maxCount);
+//         directReferrer.badge = badge ? badge.name : "None";
+
+//         await directReferrer.save();
+
+//         // Indirect referral (2 taka to referrer of direct referrer)
+//         if (directReferrer.referralCode) {
+//           const indirectReferrer = await UserData.findOne({ myrefferalcode: directReferrer.referralCode });
+//           if (indirectReferrer) {
+//             indirectReferrer.walletBalance += 2;
+//             indirectReferrer.referralBalance = (indirectReferrer.referralBalance || 0) + 2;
+
+//             // Save indirect referral history
+//             indirectReferrer.referralHistory.push({
+//               type: "indirect",
+//               amount: 2,
+//               referredUser: phoneNumber
+//             });
+
+//             // Badge update for indirect referrer
+//             const indirectBadge = badges.find(b => indirectReferrer.referralCount >= b.minCount && indirectReferrer.referralCount <= b.maxCount);
+//             indirectReferrer.badge = indirectBadge ? indirectBadge.name : "None";
+
+//             await indirectReferrer.save();
+//           }
+//         }
+//       }
+//     }
+
+//     res.json({
+//       success: true,
+//       message: "User registered successfully",
+//       user: {
+//         _id: newUser._id,
+//         displayName: newUser.displayName,
+//          userId: newUser.userId, 
+//         phoneNumber: newUser.phoneNumber,
+//         newpartroles: newUser.newpartroles,
+//         newpartuser: newUser.newpartuser,
+//         myrefferalcode: newUser.myrefferalcode,
+//         referralCode: newUser.referralCode,
+//         permissions: newUser.permissions,
+//         walletBalance: newUser.walletBalance,
+//         status: newUser.status,
+//       }
+//     });
+
+//   } catch (err) {
+//     console.error("Register error:", err);
+//     res.status(500).json({ success: false, message: err.message || "Error registering user" });
+//   }
+// });
+
+
+router.post("/register", async (req, res) => {
+  const { phoneNumber, password, displayName, referralCode } = req.body;
+ 
   try {
     const existingUser = await UserData.findOne({ phoneNumber });
     if (existingUser) {
       return res.status(400).json({ success: false, message: "Phone already registered" });
     }
-
+ 
     const myrefferalcode = `REF-${nanoid(8).toUpperCase()}`;
-     const hashedPassword = await bcrypt.hash(password, 12);
-     const userId = `USR-${nanoid(10)}`;
+    const hashedPassword = await bcrypt.hash(password, 12);
+    const userId = `USR-${nanoid(10)}`;
     const newUser = new UserData({
       phoneNumber,
       password: hashedPassword,
       displayName,
       referralCode: referralCode || "",
       myrefferalcode,
-        userId, 
+      userId,
     });
-
+ 
     await newUser.save();
-
+ 
     // ------------------------
     // Referral Bonus Logic
     // ------------------------
     if (referralCode) {
       const directReferrer = await UserData.findOne({ myrefferalcode: referralCode });
       if (directReferrer) {
-        // Direct referral
-        directReferrer.walletBalance += 5;
-        directReferrer.referralBalance = (directReferrer.referralBalance || 0) + 5;
+        // admin panel theke set kora point rate ana hocche
+        const { pointsPerReferral } = await ReferralSetting.getSettings();
+ 
+        // shudhu referralBalance a jabe, walletBalance a jabe na
+        directReferrer.referralBalance = (directReferrer.referralBalance || 0) + pointsPerReferral;
         directReferrer.referralCount = (directReferrer.referralCount || 0) + 1;
-
+ 
         // Save referral history
         directReferrer.referralHistory.push({
           type: "direct",
-          amount: 5,
-          referredUser: phoneNumber
+          amount: pointsPerReferral,
+          referredUser: phoneNumber,
         });
-
-        // Dynamic badge assignment
-        const badges = await BadgeLevel.find();
-        const userCount = directReferrer.referralCount;
-        const badge = badges.find(b => userCount >= b.minCount && userCount <= b.maxCount);
-        directReferrer.badge = badge ? badge.name : "None";
-
+ 
         await directReferrer.save();
-
-        // Indirect referral (2 taka to referrer of direct referrer)
-        if (directReferrer.referralCode) {
-          const indirectReferrer = await UserData.findOne({ myrefferalcode: directReferrer.referralCode });
-          if (indirectReferrer) {
-            indirectReferrer.walletBalance += 2;
-            indirectReferrer.referralBalance = (indirectReferrer.referralBalance || 0) + 2;
-
-            // Save indirect referral history
-            indirectReferrer.referralHistory.push({
-              type: "indirect",
-              amount: 2,
-              referredUser: phoneNumber
-            });
-
-            // Badge update for indirect referrer
-            const indirectBadge = badges.find(b => indirectReferrer.referralCount >= b.minCount && indirectReferrer.referralCount <= b.maxCount);
-            indirectReferrer.badge = indirectBadge ? indirectBadge.name : "None";
-
-            await indirectReferrer.save();
-          }
-        }
       }
     }
-
+ 
     res.json({
       success: true,
       message: "User registered successfully",
       user: {
         _id: newUser._id,
         displayName: newUser.displayName,
-         userId: newUser.userId, 
+        userId: newUser.userId,
         phoneNumber: newUser.phoneNumber,
         newpartroles: newUser.newpartroles,
         newpartuser: newUser.newpartuser,
@@ -318,9 +390,9 @@ router.post("/verify-otp", (req, res) => {
         permissions: newUser.permissions,
         walletBalance: newUser.walletBalance,
         status: newUser.status,
-      }
+      },
     });
-
+ 
   } catch (err) {
     console.error("Register error:", err);
     res.status(500).json({ success: false, message: err.message || "Error registering user" });

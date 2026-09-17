@@ -8,9 +8,14 @@ const walletHistorySchema = new mongoose.Schema({
 });
 
 const referralHistorySchema = new mongoose.Schema({
-  type: { type: String, enum: ["direct", "indirect"], required: true },
-  amount: { type: Number, required: true },
-  referredUser: { type: String }, // optional: phone or ID of the referred user
+  // direct/indirect = referral bonus পাওয়ার entry (point credit)
+  // redeemed        = checkout এ coins ব্যবহার করে taka off পাওয়ার entry (point debit)
+  // refunded        = order cancel হলে redeemed point ফেরত দেওয়ার entry (point credit)
+  type: { type: String, enum: ["direct", "indirect", "redeemed", "refunded"], required: true },
+  amount: { type: Number, required: true }, // point (redeemed/refunded হলে amount = kotogula point +/-)
+  takaAmount: { type: Number, default: 0 }, // redeemed/refunded হলে koto taka off hoyeche seta
+  referredUser: { type: String },
+  orderId: { type: mongoose.Schema.Types.ObjectId, ref: "Order", default: null },
   createdAt: { type: Date, default: Date.now }
 });
 
