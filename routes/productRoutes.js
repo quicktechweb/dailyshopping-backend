@@ -2,6 +2,7 @@ import express from "express";
 import Product from "../models/Product.js";
 import CouponPurchase from "../models/CouponPurchase.js";
 import Seller from "../models/SellerPart/SellerRegistration/SellerRegistration.js";
+import Order from "../models/Order.js";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
@@ -573,14 +574,33 @@ router.get("/details/:id", async (req, res) => {
 //   }
 // });
 
+
 router.get("/", async (req, res) => {
   try {
+    // ✅ 1️⃣ Delivered order গুলো থেকে per-product sold count বের করা (একবারেই)
+    const soldAgg = await Order.aggregate([
+      { $match: { status: "delivered" } },
+      { $unwind: "$products" },
+      {
+        $group: {
+          _id: "$products.productId",
+          soldCount: { $sum: "$products.quantity" },
+        },
+      },
+    ]);
+
+    const soldMap = {};
+    soldAgg.forEach((s) => {
+      if (s._id) soldMap[String(s._id)] = s.soldCount;
+    });
+
+    // ✅ 2️⃣ Chunked JSON stream শুরু
     res.writeHead(200, {
       "Content-Type": "application/json",
       "Transfer-Encoding": "chunked",
     });
 
-    res.write("["); 
+    res.write("[");
     let first = true;
 
     // ✅ শুধু approved product আনা হবে
@@ -593,12 +613,31 @@ router.get("/", async (req, res) => {
       if (!first) res.write(",");
       first = false;
 
-      res.write(JSON.stringify(product));
+      // ✅ 3️⃣ Rating = reviews array এর average
+      const reviews = product.reviews || [];
+      const reviewCount = reviews.length;
+      const avgRating =
+        reviewCount > 0
+          ? Number(
+              (reviews.reduce((sum, r) => sum + (r.rating || 0), 0) / reviewCount).toFixed(1)
+            )
+          : 0;
+
+      // ✅ 4️⃣ Sold count = map থেকে lookup
+      const soldCount = soldMap[String(product._id)] || 0;
+
+      const responseDoc = {
+        ...product,
+        avgRating,      // ⭐ average rating (e.g. 4.3)
+        reviewCount,    // মোট কতগুলো review
+        soldCount,      // 🚚 delivered status থেকে total sold
+      };
+
+      res.write(JSON.stringify(responseDoc));
     }
 
     res.write("]");
     res.end();
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Server Error" });

@@ -64,14 +64,14 @@ router.get("/", async (req, res) => {
 // ❌ REMOVE item from wishlist (by wishlist _id, but verify userId too)
 router.delete("/:id", async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params; // এটা এখন productId হিসেবে ধরা হচ্ছে
     const { userId } = req.query;
 
     if (!userId) {
       return res.status(400).json({ message: "userId is required" });
     }
 
-    const removed = await Wishlist.findOneAndDelete({ _id: id, userId });
+    const removed = await Wishlist.findOneAndDelete({ productId: id, userId });
     if (!removed) return res.status(404).json({ message: "Item not found" });
 
     res.status(200).json({ message: "Wishlist item deleted", removed });
