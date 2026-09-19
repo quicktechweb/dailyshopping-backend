@@ -60,6 +60,10 @@ import sellerRoutes from "./routes/SellerRoute/SellerRegistration/SellerRegistra
 import gtmRoutes from "./routes/gtmRoutes.js";
 import dns from "dns";
 import FormData from "form-data";
+import adminCommissionRoutes from "./routes/Admincommission.js";
+import campaignParentBannerRoutes from "./routes/campaignParentBannerRoutes.js";
+
+
 // dotenv.config();
 // CommonJS style JSON load
 import "./firebase-admin.js";
@@ -124,6 +128,8 @@ app.use("/api/seller-shop", sellerShopRoutes);
 app.use("/api/seller-follow", sellerFollowRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/refferalsystem", referralSettingsRoutes);
+app.use("/api/campaign-parent-banner", campaignParentBannerRoutes);
+app.use("/api/admin-commission", adminCommissionRoutes);
 
 app.get("/envtest", (req, res) => {
   res.json({

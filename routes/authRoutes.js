@@ -1248,9 +1248,37 @@ router.get("/profile/:userId", async (req, res) => {
 router.put("/profile/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
-    const { displayName, birthday, gender, avatar } = req.body;
+    const { displayName, birthday, gender, avatar, email, phoneNumber } = req.body;
 
-    const updateFields = { displayName, birthday, gender, avatar };
+    // ✅ Check duplicate email (যদি email change করা হয়)
+    if (email) {
+      const existingEmail = await UserData.findOne({
+        email,
+        userId: { $ne: userId },
+      });
+      if (existingEmail) {
+        return res.status(400).json({
+          success: false,
+          message: "This email is already in use by another account",
+        });
+      }
+    }
+
+    // ✅ Check duplicate phone (যদি phone change করা হয়)
+    if (phoneNumber) {
+      const existingPhone = await UserData.findOne({
+        phoneNumber,
+        userId: { $ne: userId },
+      });
+      if (existingPhone) {
+        return res.status(400).json({
+          success: false,
+          message: "This phone number is already in use by another account",
+        });
+      }
+    }
+
+    const updateFields = { displayName, birthday, gender, avatar, email, phoneNumber };
     Object.keys(updateFields).forEach(
       (key) => updateFields[key] === undefined && delete updateFields[key]
     );
@@ -1285,6 +1313,40 @@ router.put("/profile/:userId", async (req, res) => {
   }
 });
 
+
+
+router.put("/change-password/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: "Current and new password are required" });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: "New password must be at least 6 characters" });
+    }
+
+    const user = await UserData.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(400).json({ success: false, message: "Current password is incorrect" });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 12);
+    await user.save();
+
+    res.json({ success: true, message: "Password updated successfully" });
+  } catch (err) {
+    console.error("Change password error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
 
 // -------------------- ADDRESS BOOK (embedded in UserData) ------------------------
 

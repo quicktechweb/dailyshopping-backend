@@ -150,6 +150,7 @@ router.post("/", async (req, res) => {
 // UPDATE
 
  // ✅ GET products by sellerId (seller নিজের product দেখবে)
+  // ✅ GET products by sellerId (seller নিজের product দেখবে)
 router.get("/seller/:sellerId", async (req, res) => {
   try {
     const { sellerId } = req.params;
@@ -157,7 +158,7 @@ router.get("/seller/:sellerId", async (req, res) => {
     const limit = parseInt(req.query.limit) || 200;
     const skip = (page - 1) * limit;
 
-    const filter = { sellerId };
+    const filter = { sellerId, uploadstatus: "approved" };
 
     const [products, total] = await Promise.all([
       Product.find(filter)
@@ -181,6 +182,62 @@ router.get("/seller/:sellerId", async (req, res) => {
   } catch (err) {
     console.error("❌ Seller products fetch error:", err);
     res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// GET products by campaignId
+router.get("/:campaignId/products", async (req, res) => {
+  try {
+    const { campaignId } = req.params;
+
+    // ✅ 1️⃣ Delivered order গুলো থেকে per-product sold count বের করা (একবারেই)
+    const soldAgg = await Order.aggregate([
+      { $match: { status: "delivered" } },
+      { $unwind: "$products" },
+      {
+        $group: {
+          _id: "$products.productId",
+          soldCount: { $sum: "$products.quantity" },
+        },
+      },
+    ]);
+
+    const soldMap = {};
+    soldAgg.forEach((s) => {
+      if (s._id) soldMap[String(s._id)] = s.soldCount;
+    });
+
+    // ✅ 2️⃣ শুধু approved product, এই campaignId দিয়ে filter
+    const products = await Product.find({
+      campaignId,
+      uploadstatus: "approved",
+    }).lean();
+
+    // ✅ 3️⃣ প্রতিটা product-এ rating + soldCount attach করা
+    const productsWithStats = products.map((product) => {
+      const reviews = product.reviews || [];
+      const reviewCount = reviews.length;
+      const avgRating =
+        reviewCount > 0
+          ? Number(
+              (reviews.reduce((sum, r) => sum + (r.rating || 0), 0) / reviewCount).toFixed(1)
+            )
+          : 0;
+
+      const soldCount = soldMap[String(product._id)] || 0;
+
+      return {
+        ...product,
+        avgRating,
+        reviewCount,
+        soldCount,
+      };
+    });
+
+    res.json({ success: true, products: productsWithStats });
+  } catch (err) {
+    console.error("❌ Campaign products fetch error:", err);
+    res.status(500).json({ success: false, message: "Failed to fetch products" });
   }
 });
 
