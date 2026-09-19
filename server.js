@@ -75,7 +75,7 @@ const app = express();
 // app.use(cors({ origin: "https://scintillating-biscotti-6f194e.netlify.app", credentials: true }));
 app.use(cors());
 app.use(express.json());
-// MongoDB Connection
+// MongoDB Connectionf
 app.use(express.urlencoded({ extended: true }));
 connectDB();
 
